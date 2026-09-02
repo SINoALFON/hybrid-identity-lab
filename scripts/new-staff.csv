@@ -1,0 +1,13 @@
+@"
+FirstName,LastName,SamAccountName,Department,OU,Title,Role
+Priya,Nair,pnair,VFX,VFX,Compositor,ROLE-VFX-Artist
+Marcus,Webb,mwebb,VFX,VFX,FX Artist,ROLE-VFX-Artist
+Ana,Torres,atorres,VFX,VFX,VFX Editor,ROLE-VFX-Editor
+Maya,Chen,mchen,VFX,VFX,Senior VFX Artist,ROLE-VFX-Artist
+Devon,Reyes,dreyes,Finishing,Finishing,Colorist,ROLE-Finishing-Colorist
+Sam,Okafor,sokafor,Finishing,Finishing,Online Editor,ROLE-Finishing-Editor
+Lena,Fischer,lfischer,Finishing,Finishing,Finishing Producer,ROLE-Finishing-Producer
+Tomas,Silva,tsilva,Dailies,Dailies,Dailies Operator,DEPT-Dailies
+Grace,Kim,gkim,Infrastructure,Infrastructure,Systems Engineer,ROLE-IT-Admin
+Owen,Blake,oblake,Business,Finance\Business,Staff Accountant,DEPT-Business
+"@ | Out-File -FilePath C:\Lab\new-staff.csv -Encoding UTF8
