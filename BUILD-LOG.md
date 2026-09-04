@@ -36,6 +36,38 @@
 - Verified the policy-exception detection by deliberately creating a
   non-compliant account
 
+## Session 5 — Joiner/Mover/Leaver
+
+**Offboarding (leaver)**
+- Sequence: capture group memberships to CSV, strip all groups, disable
+  account, stamp description with offboarding date, move to Disabled OU
+- Capturing memberships before removal matters for two reasons: rehires
+  are common in post, and audit requires being able to show what someone
+  had and when it was revoked
+- Domain Users is untouched because it's the primary group and isn't
+  returned by MemberOf — removing a primary group breaks the account
+- Known gap: this handles AD only. Once synced to Entra, offboarding will
+  also need to revoke cloud sessions and tokens, since disabling the
+  on-prem account doesn't immediately kill an active session
+
+**Transfers (mover)**
+- Design decision: DEPT- and ROLE- groups are removed automatically, but
+  PROJ- groups are retained and flagged for review rather than stripped
+- Reasoning: departmental access reflects day-to-day function and should
+  follow the transfer immediately. Project access may still be needed for
+  handover on an active show, and silently revoking it mid-production is
+  how "temporary" exceptions get created and never cleaned up. Surfacing
+  it forces a decision instead of hiding one
+- Nesting paid off here — removing one role group also removed the
+  inherited department access, so a transfer is a single membership change
+  rather than hunting down individual grants
+
+**Verification**
+- Both script branches tested against the conditions they handle: the
+  transfer path with and without retained project access, and the
+  contractor report's policy-exception detection against a deliberately
+  non-compliant account
+
 ## Problems encountered
 
 **Nested OU paths reverse in distinguished names.**
