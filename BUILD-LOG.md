@@ -83,6 +83,29 @@
   ICS forces the shared adapter to 192.168.137.1, which would have
   renumbered the lab network
 
+## Session 7 — Sync verification and joiner test
+
+**Live sync confirmed**
+- Changed a user's title on-prem, forced a delta sync with
+  Start-ADSyncSyncCycle, and confirmed the change appeared in Entra.
+  Delta processes only changes since the last cycle; a full sync
+  reprocesses everything and is needed after changing filtering rules
+
+**Joiner tested end to end**
+- Added a row to the staffing CSV and reran the provisioning script.
+  New account created on-prem, synced to Entra with correct UPN,
+  department, title, and group membership intact
+- Rerunning the script against existing users produced eight expected
+  failures handled by the try/catch, and completed rather than halting.
+  Reruns are safe — worth confirming, since provisioning jobs get
+  triggered accidentally
+
+**Tenant cleanup**
+- Removed cloud-only users and groups left over from earlier Microsoft
+  Learn exercises so the tenant reflects only the synced directory.
+  Synced objects can't be deleted in Entra — AD is authoritative, and
+  deletion has to happen on-prem or via sync scope
+
 **Configuration decisions**
 - Customize rather than Express, so the sync could be scoped by OU. Express
   syncs the entire directory including built-in accounts
@@ -153,3 +176,9 @@ connector.** Attempting to use a domain admin account is blocked outright —
 the installer requires either a purpose-created service account or one with
 delegated permissions. This is a security improvement over older releases
 where domain admin was commonly used.
+
+**`$_` rebinds inside catch blocks.**
+The provisioning script's error handler referenced `$_.SamAccountName`,
+but within a catch block `$_` is the error record rather than the pipeline
+object, so failures logged as "FAILED :" with no username. Fixed by
+assigning the pipeline object to a named variable at the top of the loop.
