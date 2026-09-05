@@ -182,3 +182,21 @@ The provisioning script's error handler referenced `$_.SamAccountName`,
 but within a catch block `$_` is the error record rather than the pipeline
 object, so failures logged as "FAILED :" with no username. Fixed by
 assigning the pipeline object to a named variable at the top of the loop.
+
+**Provisioning script carried the old UPN suffix after the reassignment.**
+The alternative UPN suffix was added and existing users were reassigned to
+`SINoALFON.onmicrosoft.com`, but the provisioning script still hardcoded
+`corp.sinoalfon.com`. A newly created user therefore synced with an on-prem
+UPN that did not match the cloud value — Entra rewrote it to the verified
+domain on sync, so the account looked correct in the portal while the
+on-prem attribute was wrong.
+
+The failure is silent, which is what makes it worth noting: nothing errors,
+and the cloud object appears fine. It would surface later in scenarios that
+depend on the identifier matching across both directories, such as Seamless
+SSO or correlating cloud sign-in logs to on-prem accounts. Every subsequent
+hire created by the script would have drifted the same way.
+
+Fixed both the affected account and the script. The lesson is that a
+one-time remediation against existing objects is incomplete if the process
+that creates new ones still produces the old state.
