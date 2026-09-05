@@ -68,6 +68,53 @@
   contractor report's policy-exception detection against a deliberately
   non-compliant account
 
+## Session 6 — Entra Connect and hybrid sync
+
+**Prep**
+- Added `SINoALFON.onmicrosoft.com` as an alternative UPN suffix in AD and
+  reassigned all users to it. Without this, synced users would fall back to
+  the tenant's onmicrosoft.com address anyway, but the on-prem and cloud
+  identifiers would not match — which breaks the single-identity assumption
+  hybrid identity exists to provide
+- Added a second network adapter on an External switch so the DC could
+  reach Microsoft endpoints. Kept the internal adapter on 10.10.10.10 for
+  domain traffic so lab DNS and domain services stay isolated
+- Chose the second-adapter approach over host connection sharing because
+  ICS forces the shared adapter to 192.168.137.1, which would have
+  renumbered the lab network
+
+**Configuration decisions**
+- Customize rather than Express, so the sync could be scoped by OU. Express
+  syncs the entire directory including built-in accounts
+- Password Hash Synchronization for sign-in. Entra authenticates
+  independently, so cloud access survives an on-prem outage. What syncs is
+  a re-hash of the NTLM hash with a per-user salt, so the stored value
+  can't be replayed against on-prem
+- Source anchor left to Entra, which uses mS-DS-ConsistencyGuid. This
+  replaced objectGUID because objectGUID is unique per forest and breaks
+  the on-prem-to-cloud link during cross-forest migration
+- OU filtering scoped to the SINoALFON OU only. Builtin, Users, and
+  Computers excluded — the default Users container holds Administrator,
+  Guest, and krbtgt, none of which belong in the cloud directory
+- Disabled OU deliberately left in scope so offboarded accounts sync as
+  disabled rather than being absent. Excluding disabled accounts is a
+  common mistake that leaves stale enabled accounts in the cloud after
+  on-prem offboarding
+
+**Verified**
+- All 13 accounts synced with correct UPNs
+- On-premises sync enabled shows Yes, distinguishing synced accounts from
+  the cloud-only admin
+- Offboarded contractor present and disabled
+- Group nesting preserved — ROLE- groups remain members of DEPT- groups
+  in Entra
+
+**Known limitations**
+- Password writeback requires Entra ID P1, so self-service password reset
+  is unavailable for synced users on the free tier
+- Offboarding currently handles AD only. Disabling the on-prem account does
+  not immediately revoke active cloud sessions or refresh tokens
+
 ## Problems encountered
 
 **Nested OU paths reverse in distinguished names.**
@@ -86,3 +133,23 @@ Get-ADGroupMember and Get-ADPrincipalGroupMembership return direct
 membership only, so a user inheriting access through a nested group
 appears not to have it. The recursive LDAP matching rule
 (1.2.840.113556.1.4.1941) enumerates effective membership correctly.
+
+**Restarting the Connect wizard orphans the sync service account.**
+The first run created an MSOL_ service account with a generated password.
+Restarting the wizard prompted for directory credentials again, and the
+existing account's password was unknown. Removed the orphaned account and
+let the wizard create a fresh one.
+
+**Sign-in configuration reported the tenant domain as "Not Added."**
+Both UPN suffixes showed as not matching a verified Entra domain, despite
+`SINoALFON.onmicrosoft.com` being verified and primary in the tenant, and
+despite `Get-ADForest` confirming the suffix was registered. Restarting the
+wizard did not clear it. Proceeded using the "Continue without matching all
+UPN suffixes to verified domains" checkbox; the sync produced correct UPNs,
+confirming the warning was cosmetic.
+
+**Newer Connect Sync versions refuse privileged accounts for the AD
+connector.** Attempting to use a domain admin account is blocked outright —
+the installer requires either a purpose-created service account or one with
+delegated permissions. This is a security improvement over older releases
+where domain admin was commonly used.
