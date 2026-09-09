@@ -169,6 +169,41 @@
   report what is configured; the token reports what actually governs
   authorisation
 
+## Session 9 — Loopback processing verified
+
+**Computer OU structure**
+- Created Computers → Workstations → SharedBays. The depth is driven by
+  policy boundaries rather than tidiness: Workstations separates end-user
+  machines from servers, SharedBays separates machines anyone might sit at
+  from assigned desks, which is the distinction that justifies stricter
+  session policy
+- WS01 had joined into the default Computers container. Domain join always
+  lands machines there unless the default is redirected with redircmp
+
+**The GPO**
+- Single GPO linked to SharedBays doing two different jobs:
+  - Computer Configuration enables loopback processing in Merge mode
+  - User Configuration carries the screen saver settings (enable, 600s
+    timeout, password protect)
+- Without loopback, the User Configuration half would be ignored, because
+  the linked OU contains computer objects rather than users
+- Merge over Replace: Merge applies the user's own policy first and layers
+  the machine-based settings on top, with the machine winning conflicts.
+  A VFX artist keeps their departmental settings and picks up the stricter
+  session policy from the shared bay. Replace discards the user's policy
+  entirely, which suits kiosks but not workstations
+
+**Verification**
+- Signed in as a user whose account lives in Staff → VFX, on a machine in
+  SharedBays. gpresult /r /scope:user lists SharedBay - Session Security
+  under Applied Group Policy Objects — the policy reached a user from an
+  entirely different branch of the tree, which is loopback working
+- Confirmed end to end by checking the registry values the policy writes
+  under HKCU:\Software\Policies\Microsoft\Windows\Control Panel\Desktop.
+  ScreenSaveActive 1, ScreenSaveTimeOut 600, ScreenSaverIsSecure 1
+- User-side settings apply at logon, so a sign-out is needed after
+  gpupdate /force before they take effect
+
 ## Problems encountered
 
 **Nested OU paths reverse in distinguished names.**
@@ -260,3 +295,10 @@ grant was reverted rather than left in place.
 With no internet available, setup stalls rather than offering a local
 account. Shift+F10 to a command prompt and OOBE\BYPASSNRO returns setup to
 a state where "I don't have internet" is offered.
+
+**Hyper-V VM name and Windows hostname are unrelated.**
+The VM was labelled WS01 in Hyper-V, but Windows generated its own
+hostname during setup and joined the domain under that. Get-ADComputer
+found no object called WS01. Renamed the machine with Rename-Computer,
+which requires domain credentials on a joined machine because it updates
+the computer object in AD.
