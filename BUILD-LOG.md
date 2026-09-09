@@ -46,9 +46,9 @@
   had and when it was revoked
 - Domain Users is untouched because it's the primary group and isn't
   returned by MemberOf — removing a primary group breaks the account
-- Known gap: this handles AD only. Once synced to Entra, offboarding will
-  also need to revoke cloud sessions and tokens, since disabling the
-  on-prem account doesn't immediately kill an active session
+- Known gap at the time: this handled AD only. Disabling the on-prem
+  account does not immediately revoke active cloud sessions or refresh
+  tokens. Resolved in Session 8
 
 **Transfers (mover)**
 - Design decision: DEPT- and ROLE- groups are removed automatically, but
@@ -83,29 +83,6 @@
   ICS forces the shared adapter to 192.168.137.1, which would have
   renumbered the lab network
 
-## Session 7 — Sync verification and joiner test
-
-**Live sync confirmed**
-- Changed a user's title on-prem, forced a delta sync with
-  Start-ADSyncSyncCycle, and confirmed the change appeared in Entra.
-  Delta processes only changes since the last cycle; a full sync
-  reprocesses everything and is needed after changing filtering rules
-
-**Joiner tested end to end**
-- Added a row to the staffing CSV and reran the provisioning script.
-  New account created on-prem, synced to Entra with correct UPN,
-  department, title, and group membership intact
-- Rerunning the script against existing users produced eight expected
-  failures handled by the try/catch, and completed rather than halting.
-  Reruns are safe — worth confirming, since provisioning jobs get
-  triggered accidentally
-
-**Tenant cleanup**
-- Removed cloud-only users and groups left over from earlier Microsoft
-  Learn exercises so the tenant reflects only the synced directory.
-  Synced objects can't be deleted in Entra — AD is authoritative, and
-  deletion has to happen on-prem or via sync scope
-
 **Configuration decisions**
 - Customize rather than Express, so the sync could be scoped by OU. Express
   syncs the entire directory including built-in accounts
@@ -135,14 +112,60 @@
 **Known limitations**
 - Password writeback requires Entra ID P1, so self-service password reset
   is unavailable for synced users on the free tier
-- Offboarding currently handles AD only. Disabling the on-prem account does
-  not immediately revoke active cloud sessions or refresh tokens
 
-## Session 8 — Group Policy and domain-joined client
+## Session 7 — Sync verification and joiner test
+
+**Live sync confirmed**
+- Changed a user's title on-prem, forced a delta sync with
+  Start-ADSyncSyncCycle, and confirmed the change appeared in Entra.
+  Delta processes only changes since the last cycle; a full sync
+  reprocesses everything and is needed after changing filtering rules
+
+**Joiner tested end to end**
+- Added a row to the staffing CSV and reran the provisioning script.
+  New account created on-prem, synced to Entra with correct UPN,
+  department, title, and group membership intact
+- Rerunning the script against existing users produced eight expected
+  failures handled by the try/catch, and completed rather than halting.
+  Reruns are safe — worth confirming, since provisioning jobs get
+  triggered accidentally
+
+**Tenant cleanup**
+- Removed cloud-only users and groups left over from earlier Microsoft
+  Learn exercises so the tenant reflects only the synced directory.
+  Synced objects can't be deleted in Entra — AD is authoritative, and
+  deletion has to happen on-prem or via sync scope
+
+## Session 8 — Cloud session revocation
+
+**Closing the offboarding gap**
+- Disabling an account on-prem does not invalidate tokens already issued
+  by Entra. Access tokens remain valid until expiry, and refresh tokens
+  far longer, so a user offboarded during an active session keeps working
+  until the token is refused. For a freelancer being walked out on the last
+  day of a show, with unreleased content on screen, that window matters
+- Revoke-MgUserSignInSession invalidates refresh tokens and forces
+  reauthentication everywhere. Since the account is disabled, that
+  reauthentication then fails
+- Added to the offboarding script ahead of the AD teardown, so there is no
+  interval where the cloud account is still live after revocation has begun
+- Wrapped in its own try/catch. If Graph is unreachable the AD teardown has
+  already succeeded and should not be rolled back — failing loudly on the
+  revocation while preserving the rest is the right behaviour
+
+**Known simplifications**
+- Connect-MgGraph authenticates interactively on every run. Production
+  automation would use certificate-based app authentication instead
+- Graph requires PowerShell 7 while the AD module targets 5.1. Consolidated
+  on pwsh, which loads the AD module through its compatibility layer.
+  Objects returned that way are deserialized — properties survive, methods
+  do not
+
+## Session 9 — Group Policy and domain-joined client
 
 **Group Policy design**
 - Created a GPO linked to the Contractors OU for session security, then
-  realised the setting chosen (Interactive logon: Machine inactivity limit)
+  realized the setting chosen (Interactive logon: Machine inactivity limit)
   is under Computer Configuration while the OU contains only user objects.
   Computer settings do not apply to user OUs, so the policy would never
   have taken effect
@@ -167,9 +190,9 @@
   — it resolves through group nesting at authentication time
 - This is the definitive check for effective access. Directory queries
   report what is configured; the token reports what actually governs
-  authorisation
+  authorization
 
-## Session 9 — Loopback processing verified
+## Session 10 — Loopback processing verified
 
 **Computer OU structure**
 - Created Computers → Workstations → SharedBays. The depth is driven by
@@ -204,7 +227,35 @@
 - User-side settings apply at logon, so a sign-out is needed after
   gpupdate /force before they take effect
 
-## Problems encountered
+---
+
+# Problems encountered
+
+**Transitive group membership is not visible through the obvious cmdlets.**
+Get-ADGroupMember and Get-ADPrincipalGroupMembership return direct
+membership only, so a user inheriting access through a nested group appears
+not to have it. The recursive LDAP matching rule
+(1.2.840.113556.1.4.1941) enumerates effective membership correctly.
+Confirmed later against a real login — whoami /groups shows the inherited
+group in the security token, which is the ground truth for authorization.
+
+**Provisioning script carried the old UPN suffix after the reassignment.**
+The alternative UPN suffix was added and existing users were reassigned to
+`SINoALFON.onmicrosoft.com`, but the provisioning script still hardcoded
+`corp.sinoalfon.com`. A newly created user therefore synced with an on-prem
+UPN that did not match the cloud value — Entra rewrote it to the verified
+domain on sync, so the account looked correct in the portal while the
+on-prem attribute was wrong.
+
+The failure is silent, which is what makes it worth noting: nothing errors,
+and the cloud object appears fine. It would surface later in scenarios that
+depend on the identifier matching across both directories, such as Seamless
+SSO or correlating cloud sign-in logs to on-prem accounts. Every subsequent
+hire created by the script would have drifted the same way.
+
+Fixed both the affected account and the script. The lesson is that a
+one-time remediation against existing objects is incomplete if the process
+that creates new ones still produces the old state.
 
 **Nested OU paths reverse in distinguished names.**
 The provisioning script built `OU=Business,OU=Finance,...` from a CSV
@@ -217,11 +268,11 @@ The same script printed a success message for the account that failed,
 because AD cmdlet errors are non-terminating by default and the loop
 continued. Added -ErrorAction Stop with try/catch.
 
-**Transitive group membership is not visible through the obvious cmdlets.**
-Get-ADGroupMember and Get-ADPrincipalGroupMembership return direct
-membership only, so a user inheriting access through a nested group
-appears not to have it. The recursive LDAP matching rule
-(1.2.840.113556.1.4.1941) enumerates effective membership correctly.
+**`$_` rebinds inside catch blocks.**
+The provisioning script's error handler referenced `$_.SamAccountName`,
+but within a catch block `$_` is the error record rather than the pipeline
+object, so failures logged as "FAILED :" with no username. Fixed by
+assigning the pipeline object to a named variable at the top of the loop.
 
 **Restarting the Connect wizard orphans the sync service account.**
 The first run created an MSOL_ service account with a generated password.
@@ -243,29 +294,21 @@ the installer requires either a purpose-created service account or one with
 delegated permissions. This is a security improvement over older releases
 where domain admin was commonly used.
 
-**`$_` rebinds inside catch blocks.**
-The provisioning script's error handler referenced `$_.SamAccountName`,
-but within a catch block `$_` is the error record rather than the pipeline
-object, so failures logged as "FAILED :" with no username. Fixed by
-assigning the pipeline object to a named variable at the top of the loop.
+**Modules installed to a path PowerShell does not search.**
+Install-Module with -Scope CurrentUser reported success, but
+Get-Module -ListAvailable found nothing. The server's PSModulePath had no
+CurrentUser entry, so the module landed somewhere PowerShell never looks.
+No error, no module. Installing with -Scope AllUsers targeted a path that
+was on the search list and resolved it. PSModulePath is the first thing to
+check when a module installs but cannot be found.
 
-**Provisioning script carried the old UPN suffix after the reassignment.**
-The alternative UPN suffix was added and existing users were reassigned to
-`SINoALFON.onmicrosoft.com`, but the provisioning script still hardcoded
-`corp.sinoalfon.com`. A newly created user therefore synced with an on-prem
-UPN that did not match the cloud value — Entra rewrote it to the verified
-domain on sync, so the account looked correct in the portal while the
-on-prem attribute was wrong.
-
-The failure is silent, which is what makes it worth noting: nothing errors,
-and the cloud object appears fine. It would surface later in scenarios that
-depend on the identifier matching across both directories, such as Seamless
-SSO or correlating cloud sign-in logs to on-prem accounts. Every subsequent
-hire created by the script would have drifted the same way.
-
-Fixed both the affected account and the script. The lesson is that a
-one-time remediation against existing objects is incomplete if the process
-that creates new ones still produces the old state.
+**Microsoft Graph does not load on Windows PowerShell 5.1.**
+Importing Microsoft.Graph.Authentication threw a TypeLoadException —
+a method in the module's assembly had no implementation, meaning it was
+built against a newer .NET runtime than 5.1 provides. Documentation in
+places still suggests 5.1 is supported; it is not for current versions.
+Installed PowerShell 7, which runs on .NET Core and sits alongside 5.1
+rather than replacing it.
 
 **Computer settings do not apply to user OUs.**
 A GPO linked to an OU containing users cannot deliver Computer
