@@ -138,6 +138,37 @@
 - Offboarding currently handles AD only. Disabling the on-prem account does
   not immediately revoke active cloud sessions or refresh tokens
 
+## Session 8 — Group Policy and domain-joined client
+
+**Group Policy design**
+- Created a GPO linked to the Contractors OU for session security, then
+  realised the setting chosen (Interactive logon: Machine inactivity limit)
+  is under Computer Configuration while the OU contains only user objects.
+  Computer settings do not apply to user OUs, so the policy would never
+  have taken effect
+- This led to loopback processing, which is the correct mechanism for the
+  actual requirement: session policy should follow the workstation, not the
+  person. A contractor at a shared edit bay should get stricter settings
+  because of where they are sitting, and so should a staff editor at the
+  same machine
+- Loopback needs computer objects to link against, which the lab did not
+  have — prompting the client VM build
+
+**Client workstation (WS01)**
+- Windows 11 Pro, Gen 2 VM with virtual TPM enabled (Windows 11 refuses to
+  install without it), 4GB, internal switch only — no internet needed
+- Static IP 10.10.10.20, DNS pointed at the DC before joining. Domain join
+  fails without name resolution against the domain controller
+- Joined with Add-Computer, signed in as a synced domain user
+
+**Verification**
+- whoami /groups on a real login shows both ROLE-VFX-Artist and DEPT-VFX in
+  the security token. The department membership was never assigned directly
+  — it resolves through group nesting at authentication time
+- This is the definitive check for effective access. Directory queries
+  report what is configured; the token reports what actually governs
+  authorisation
+
 ## Problems encountered
 
 **Nested OU paths reverse in distinguished names.**
@@ -200,3 +231,32 @@ hire created by the script would have drifted the same way.
 Fixed both the affected account and the script. The lesson is that a
 one-time remediation against existing objects is incomplete if the process
 that creates new ones still produces the old state.
+
+**Computer settings do not apply to user OUs.**
+A GPO linked to an OU containing users cannot deliver Computer
+Configuration settings. Diagnosed conceptually before deployment; would
+have surfaced as a policy showing "not applied" in Group Policy Results.
+The fix is either a user-scoped equivalent setting or loopback processing
+against an OU of computers.
+
+**Multi-homed domain controller registers both interfaces in DNS.**
+After adding the external adapter for Entra Connect, the DC registered both
+10.10.10.10 and its DHCP address from the home network. Clients resolving
+the domain receive both, and may attempt the unreachable one. Retries mask
+it, but the correct fix is disabling DNS registration on the external
+adapter and clearing the stale record. This is why multi-homed DCs are
+discouraged.
+
+**Hyper-V enhanced session mode blocks standard domain users.**
+Enhanced session connects over RDP, which requires membership in Remote
+Desktop Users. Ordinary domain users are denied. Adding a department group
+to the domain-level Remote Desktop Users group does not help — that group
+governs domain controller access, not member workstations. The correct
+scoping is domain group nested into the workstation's local group.
+Worked around by disabling enhanced session, and the department-wide RDP
+grant was reverted rather than left in place.
+
+**Windows 11 out-of-box experience forces a Microsoft account.**
+With no internet available, setup stalls rather than offering a local
+account. Shift+F10 to a command prompt and OOBE\BYPASSNRO returns setup to
+a state where "I don't have internet" is offered.
