@@ -13,13 +13,13 @@ SINoALFON Media (S-Media for short) is a post-production facility that handles a
 - Domain: corp.sinoalfon.com (NetBIOS: SINOALFON)
 
 ## Build log
-### Session 1 — Domain controller
+### Session 1: Domain controller
 - Hyper-V VM (DC01), Server 2025 Standard eval, Gen 2, 4GB RAM, 2 vCPU
 - Internal virtual switch, 10.10.10.0/24, host at .1 and DC at .10
 - Static IP set before promotion; DNS pointed at loopback
 - Promoted to new forest: corp.sinoalfon.com (NetBIOS SINOALFON)
 
-### Session 2 — OU structure and groups
+### Session 2: OU structure and groups
 - OUs follow departments, not job titles — titles churn and Group Policy
   links to OUs, so a stable structure matters more than a descriptive one
 - Departments: VFX, Finishing, Dailies, Infrastructure, Business
@@ -31,13 +31,13 @@ SINoALFON Media (S-Media for short) is a post-production facility that handles a
 - Role layer only added where a department has internally different
   access needs — Dailies and Business use department groups directly
 
-### Session 3 — Staff provisioning
+### Session 3: Staff provisioning
 - Two accounts created manually first to work through the parameters,
   then converted to a CSV-driven script for the remaining eight
 - Department and Title populated as real AD attributes to support
   later automation and dynamic groups
 
-### Session 4 — Contractors and lifecycle
+### Session 4: Contractors and lifecycle
 - Contractors kept in a separate OU with no department group membership —
   project access only, via PROJ- groups
 - Accounts provisioned with -AccountExpirationDate so deprovisioning
@@ -49,7 +49,7 @@ SINoALFON Media (S-Media for short) is a post-production facility that handles a
 - Verified the policy-exception detection by deliberately creating a
   non-compliant account
 
-### Session 5 — Joiner/Mover/Leaver
+### Session 5: Joiner/Mover/Leaver
 
 **Offboarding (leaver)**
 - Sequence: capture group memberships to CSV, strip all groups, disable
@@ -81,7 +81,7 @@ SINoALFON Media (S-Media for short) is a post-production facility that handles a
   contractor report's policy-exception detection against a deliberately
   non-compliant account
 
-### Session 6 — Entra Connect and hybrid sync
+### Session 6: Entra Connect and hybrid sync
 
 **Prep**
 - Added `SINoALFON.onmicrosoft.com` as an alternative UPN suffix in AD and
@@ -126,7 +126,7 @@ SINoALFON Media (S-Media for short) is a post-production facility that handles a
 - Password writeback requires Entra ID P1, so self-service password reset
   is unavailable for synced users on the free tier
 
-### Session 7 — Sync verification and joiner test
+### Session 7: Sync verification and joiner test
 
 **Live sync confirmed**
 - Changed a user's title on-prem, forced a delta sync with
@@ -149,7 +149,7 @@ SINoALFON Media (S-Media for short) is a post-production facility that handles a
   Synced objects can't be deleted in Entra — AD is authoritative, and
   deletion has to happen on-prem or via sync scope
 
-### Session 8 — Cloud session revocation
+### Session 8: Cloud session revocation
 
 **Closing the offboarding gap**
 - Disabling an account on-prem does not invalidate tokens already issued
@@ -174,7 +174,7 @@ SINoALFON Media (S-Media for short) is a post-production facility that handles a
   Objects returned that way are deserialized — properties survive, methods
   do not
 
-### Session 9 — Group Policy and domain-joined client
+### Session 9: Group Policy and domain-joined client
 
 **Group Policy design**
 - Created a GPO linked to the Contractors OU for session security, then
@@ -205,7 +205,7 @@ SINoALFON Media (S-Media for short) is a post-production facility that handles a
   report what is configured; the token reports what actually governs
   authorization
 
-### Session 10 — Loopback processing verified
+### Session 10: Loopback processing verified
 
 **Computer OU structure**
 - Created Computers → Workstations → SharedBays. The depth is driven by
@@ -239,6 +239,7 @@ SINoALFON Media (S-Media for short) is a post-production facility that handles a
   ScreenSaveActive 1, ScreenSaveTimeOut 600, ScreenSaverIsSecure 1
 - User-side settings apply at logon, so a sign-out is needed after
   gpupdate /force before they take effect
+  
 ## Problems and solutions
 **Transitive group membership is not visible through the obvious cmdlets.**
 Get-ADGroupMember and Get-ADPrincipalGroupMembership return direct
