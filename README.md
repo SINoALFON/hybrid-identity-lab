@@ -240,5 +240,119 @@ SINoALFON Media (S-Media for short) is a post-production facility that handles a
 - User-side settings apply at logon, so a sign-out is needed after
   gpupdate /force before they take effect
 ## Problems and solutions
+**Transitive group membership is not visible through the obvious cmdlets.**
+Get-ADGroupMember and Get-ADPrincipalGroupMembership return direct
+membership only, so a user inheriting access through a nested group appears
+not to have it. The recursive LDAP matching rule
+(1.2.840.113556.1.4.1941) enumerates effective membership correctly.
+Confirmed later against a real login — whoami /groups shows the inherited
+group in the security token, which is the ground truth for authorization.
+
+**Provisioning script carried the old UPN suffix after the reassignment.**
+The alternative UPN suffix was added and existing users were reassigned to
+`SINoALFON.onmicrosoft.com`, but the provisioning script still hardcoded
+`corp.sinoalfon.com`. A newly created user therefore synced with an on-prem
+UPN that did not match the cloud value — Entra rewrote it to the verified
+domain on sync, so the account looked correct in the portal while the
+on-prem attribute was wrong.
+
+The failure is silent, which is what makes it worth noting: nothing errors,
+and the cloud object appears fine. It would surface later in scenarios that
+depend on the identifier matching across both directories, such as Seamless
+SSO or correlating cloud sign-in logs to on-prem accounts. Every subsequent
+hire created by the script would have drifted the same way.
+
+Fixed both the affected account and the script. The lesson is that a
+one-time remediation against existing objects is incomplete if the process
+that creates new ones still produces the old state.
+
+**Nested OU paths reverse in distinguished names.**
+The provisioning script built `OU=Business,OU=Finance,...` from a CSV
+column written `Business\Finance`. DNs read innermost-first, so the path
+was inverted and creation failed. Fixed by reversing the segments before
+joining.
+
+**Non-terminating errors hid the failure.**
+The same script printed a success message for the account that failed,
+because AD cmdlet errors are non-terminating by default and the loop
+continued. Added -ErrorAction Stop with try/catch.
+
+**`$_` rebinds inside catch blocks.**
+The provisioning script's error handler referenced `$_.SamAccountName`,
+but within a catch block `$_` is the error record rather than the pipeline
+object, so failures logged as "FAILED :" with no username. Fixed by
+assigning the pipeline object to a named variable at the top of the loop.
+
+**Restarting the Connect wizard orphans the sync service account.**
+The first run created an MSOL_ service account with a generated password.
+Restarting the wizard prompted for directory credentials again, and the
+existing account's password was unknown. Removed the orphaned account and
+let the wizard create a fresh one.
+
+**Sign-in configuration reported the tenant domain as "Not Added."**
+Both UPN suffixes showed as not matching a verified Entra domain, despite
+`SINoALFON.onmicrosoft.com` being verified and primary in the tenant, and
+despite `Get-ADForest` confirming the suffix was registered. Restarting the
+wizard did not clear it. Proceeded using the "Continue without matching all
+UPN suffixes to verified domains" checkbox; the sync produced correct UPNs,
+confirming the warning was cosmetic.
+
+**Newer Connect Sync versions refuse privileged accounts for the AD
+connector.** Attempting to use a domain admin account is blocked outright —
+the installer requires either a purpose-created service account or one with
+delegated permissions. This is a security improvement over older releases
+where domain admin was commonly used.
+
+**Modules installed to a path PowerShell does not search.**
+Install-Module with -Scope CurrentUser reported success, but
+Get-Module -ListAvailable found nothing. The server's PSModulePath had no
+CurrentUser entry, so the module landed somewhere PowerShell never looks.
+No error, no module. Installing with -Scope AllUsers targeted a path that
+was on the search list and resolved it. PSModulePath is the first thing to
+check when a module installs but cannot be found.
+
+**Microsoft Graph does not load on Windows PowerShell 5.1.**
+Importing Microsoft.Graph.Authentication threw a TypeLoadException —
+a method in the module's assembly had no implementation, meaning it was
+built against a newer .NET runtime than 5.1 provides. Documentation in
+places still suggests 5.1 is supported; it is not for current versions.
+Installed PowerShell 7, which runs on .NET Core and sits alongside 5.1
+rather than replacing it.
+
+**Computer settings do not apply to user OUs.**
+A GPO linked to an OU containing users cannot deliver Computer
+Configuration settings. Diagnosed conceptually before deployment; would
+have surfaced as a policy showing "not applied" in Group Policy Results.
+The fix is either a user-scoped equivalent setting or loopback processing
+against an OU of computers.
+
+**Multi-homed domain controller registers both interfaces in DNS.**
+After adding the external adapter for Entra Connect, the DC registered both
+10.10.10.10 and its DHCP address from the home network. Clients resolving
+the domain receive both, and may attempt the unreachable one. Retries mask
+it, but the correct fix is disabling DNS registration on the external
+adapter and clearing the stale record. This is why multi-homed DCs are
+discouraged.
+
+**Hyper-V enhanced session mode blocks standard domain users.**
+Enhanced session connects over RDP, which requires membership in Remote
+Desktop Users. Ordinary domain users are denied. Adding a department group
+to the domain-level Remote Desktop Users group does not help — that group
+governs domain controller access, not member workstations. The correct
+scoping is domain group nested into the workstation's local group.
+Worked around by disabling enhanced session, and the department-wide RDP
+grant was reverted rather than left in place.
+
+**Windows 11 out-of-box experience forces a Microsoft account.**
+With no internet available, setup stalls rather than offering a local
+account. Shift+F10 to a command prompt and OOBE\BYPASSNRO returns setup to
+a state where "I don't have internet" is offered.
+
+**Hyper-V VM name and Windows hostname are unrelated.**
+The VM was labelled WS01 in Hyper-V, but Windows generated its own
+hostname during setup and joined the domain under that. Get-ADComputer
+found no object called WS01. Renamed the machine with Rename-Computer,
+which requires domain credentials on a joined machine because it updates
+the computer object in AD.
 
 ## Skills demonstrated
