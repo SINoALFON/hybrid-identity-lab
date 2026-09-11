@@ -354,5 +354,3 @@ hostname during setup and joined the domain under that. Get-ADComputer
 found no object called WS01. Renamed the machine with Rename-Computer,
 which requires domain credentials on a joined machine because it updates
 the computer object in AD.
-
-## Skills demonstrated
